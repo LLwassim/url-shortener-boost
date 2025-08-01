@@ -13,12 +13,3 @@ datasources:
       httpMethod: "POST"
     secureJsonData: {}
     version: 1
-
-  - name: Jaeger
-    type: jaeger
-    access: proxy
-    url: http://jaeger:16686
-    editable: true
-    jsonData:
-      timeInterval: "5s"
-    version: 1

@@ -1,8 +1,12 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Client, auth, mapping } from 'cassandra-driver';
-import { LoggerService } from './logger.service';
-import { HitEventDto, AnalyticsResponseDto, TimeSeriesDataPoint } from '../dto/analytics.dto';
+import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Client, auth, mapping } from "cassandra-driver";
+import { LoggerService } from "./logger.service";
+import {
+  HitEventDto,
+  AnalyticsResponseDto,
+  TimeSeriesDataPoint,
+} from "../dto/analytics.dto";
 
 interface HitRecord {
   code: string;
@@ -40,37 +44,43 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
+    private readonly logger: LoggerService
   ) {
-    this.keyspace = this.configService.get<string>('CASSANDRA_KEYSPACE', 'url_analytics');
-    
-    const hosts = this.configService.get<string>('CASSANDRA_HOSTS', 'localhost:9042').split(',');
-    
+    this.keyspace = this.configService.get<string>(
+      "CASSANDRA_KEYSPACE",
+      "url_analytics"
+    );
+
+    const hosts = this.configService
+      .get<string>("CASSANDRA_HOSTS", "localhost:9042")
+      .split(",");
+
     this.client = new Client({
       contactPoints: hosts,
-      localDataCenter: 'datacenter1',
+      localDataCenter: "datacenter1",
       keyspace: this.keyspace,
       credentials: {
-        username: this.configService.get<string>('CASSANDRA_USERNAME', 'cassandra'),
-        password: this.configService.get<string>('CASSANDRA_PASSWORD', 'cassandra'),
+        username: this.configService.get<string>(
+          "CASSANDRA_USERNAME",
+          "cassandra"
+        ),
+        password: this.configService.get<string>(
+          "CASSANDRA_PASSWORD",
+          "cassandra"
+        ),
       },
       pooling: {
         coreConnectionsPerHost: {
-          '0': 2,
-          '1': 1,
-          '2': 0,
-        },
-        maxConnectionsPerHost: {
-          '0': 8,
-          '1': 2,
-          '2': 0,
+          "0": 8,
+          "1": 2,
+          "2": 0,
         },
       },
       socketOptions: {
         connectTimeout: 10000,
         readTimeout: 30000,
       },
-      requestTimeout: 30000,
+      // requestTimeout removed for compatibility
       protocolOptions: {
         port: 9042,
       },
@@ -81,9 +91,14 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.client.connect();
       await this.createKeyspaceAndTables();
-      this.logger.log('✅ Cassandra service initialized', 'CassandraService');
+      this.logger.log("✅ Cassandra service initialized", "CassandraService");
     } catch (error) {
-      this.logger.error('❌ Failed to initialize Cassandra service', error.message, 'CassandraService', { error: error.stack });
+      this.logger.error(
+        "❌ Failed to initialize Cassandra service",
+        error.message,
+        "CassandraService",
+        { error: error.stack }
+      );
       throw error;
     }
   }
@@ -91,9 +106,13 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     try {
       await this.client.shutdown();
-      this.logger.log('✅ Cassandra service disconnected', 'CassandraService');
+      this.logger.log("✅ Cassandra service disconnected", "CassandraService");
     } catch (error) {
-      this.logger.error('❌ Error disconnecting Cassandra service', error.message, 'CassandraService');
+      this.logger.error(
+        "❌ Error disconnecting Cassandra service",
+        error.message,
+        "CassandraService"
+      );
     }
   }
 
@@ -118,9 +137,16 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
       // Create tables
       await this.createTables();
 
-      this.logger.log('✅ Cassandra keyspace and tables created', 'CassandraService');
+      this.logger.log(
+        "✅ Cassandra keyspace and tables created",
+        "CassandraService"
+      );
     } catch (error) {
-      this.logger.error('❌ Failed to create Cassandra keyspace and tables', error.message, 'CassandraService');
+      this.logger.error(
+        "❌ Failed to create Cassandra keyspace and tables",
+        error.message,
+        "CassandraService"
+      );
       throw error;
     }
   }
@@ -141,7 +167,7 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
           PRIMARY KEY ((code), date, hour)
         ) WITH CLUSTERING ORDER BY (date DESC, hour DESC)
       `,
-      
+
       // Hits by minute for detailed analytics
       `
         CREATE TABLE IF NOT EXISTS hits_by_minute (
@@ -211,7 +237,7 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
       await this.client.execute(table);
     }
 
-    this.logger.log('✅ All Cassandra tables created', 'CassandraService');
+    this.logger.log("✅ All Cassandra tables created", "CassandraService");
   }
 
   /**
@@ -219,12 +245,19 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
    */
   async recordHitEvent(hitEvent: HitEventDto): Promise<void> {
     try {
-      const date = new Date(hitEvent.timestamp.getFullYear(), hitEvent.timestamp.getMonth(), hitEvent.timestamp.getDate());
+      const date = new Date(
+        hitEvent.timestamp.getFullYear(),
+        hitEvent.timestamp.getMonth(),
+        hitEvent.timestamp.getDate()
+      );
       const hour = hitEvent.timestamp.getHours();
       const minute = hitEvent.timestamp.getMinutes();
-      
+
       // Create a hash for unique visitor tracking
-      const visitorHash = this.createVisitorHash(hitEvent.ip, hitEvent.userAgent);
+      const visitorHash = this.createVisitorHash(
+        hitEvent.ip,
+        hitEvent.userAgent
+      );
 
       const queries = [
         // Update hourly stats
@@ -236,7 +269,7 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
           `,
           params: [hitEvent.code, date, hour],
         },
-        
+
         // Update minute stats
         {
           query: `
@@ -268,7 +301,7 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
       ];
 
       // Add referrer tracking if available
-      if (hitEvent.referrer && hitEvent.referrer !== 'direct') {
+      if (hitEvent.referrer && hitEvent.referrer !== "direct") {
         queries.push({
           query: `
             UPDATE referrers 
@@ -301,9 +334,9 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
           `,
           params: [
             hitEvent.code,
-            hitEvent.deviceType || 'unknown',
-            hitEvent.browser || 'unknown',
-            hitEvent.os || 'unknown',
+            hitEvent.deviceType || "unknown",
+            hitEvent.browser || "unknown",
+            hitEvent.os || "unknown",
           ],
         });
       }
@@ -311,15 +344,24 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
       // Execute all queries in batch
       await this.client.batch(queries, { prepare: true });
 
-      this.logger.debug('📊 Recorded hit event in Cassandra', 'CassandraService', {
-        code: hitEvent.code,
-        timestamp: hitEvent.timestamp,
-      });
+      this.logger.debug(
+        "📊 Recorded hit event in Cassandra",
+        "CassandraService",
+        {
+          code: hitEvent.code,
+          timestamp: hitEvent.timestamp,
+        }
+      );
     } catch (error) {
-      this.logger.error('❌ Failed to record hit event', error.message, 'CassandraService', {
-        code: hitEvent.code,
-        error: error.stack,
-      });
+      this.logger.error(
+        "❌ Failed to record hit event",
+        error.message,
+        "CassandraService",
+        {
+          code: hitEvent.code,
+          error: error.stack,
+        }
+      );
       throw error;
     }
   }
@@ -331,7 +373,7 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
     code: string,
     startDate?: Date,
     endDate?: Date,
-    granularity: 'minute' | 'hour' | 'day' = 'hour'
+    granularity: "minute" | "hour" | "day" = "hour"
   ): Promise<AnalyticsResponseDto> {
     try {
       const [
@@ -363,17 +405,26 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
         browsers: devices.browsers,
       };
 
-      this.logger.debug('📊 Retrieved analytics from Cassandra', 'CassandraService', {
-        code,
-        totalHits: analytics.totalHits,
-      });
+      this.logger.debug(
+        "📊 Retrieved analytics from Cassandra",
+        "CassandraService",
+        {
+          code,
+          totalHits: analytics.totalHits,
+        }
+      );
 
       return analytics;
     } catch (error) {
-      this.logger.error('❌ Failed to get analytics', error.message, 'CassandraService', {
-        code,
-        error: error.stack,
-      });
+      this.logger.error(
+        "❌ Failed to get analytics",
+        error.message,
+        "CassandraService",
+        {
+          code,
+          error: error.stack,
+        }
+      );
       throw error;
     }
   }
@@ -385,43 +436,64 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
     code: string,
     startDate?: Date,
     endDate?: Date,
-    granularity: 'minute' | 'hour' | 'day' = 'hour'
+    granularity: "minute" | "hour" | "day" = "hour"
   ): Promise<TimeSeriesDataPoint[]> {
-    const table = granularity === 'minute' ? 'hits_by_minute' : 'hits_by_hour';
-    let query = `SELECT date, hour, ${granularity === 'minute' ? 'minute,' : ''} count FROM ${table} WHERE code = ?`;
+    const table = granularity === "minute" ? "hits_by_minute" : "hits_by_hour";
+    let query = `SELECT date, hour, ${
+      granularity === "minute" ? "minute," : ""
+    } count FROM ${table} WHERE code = ?`;
     const params = [code];
 
     if (startDate && endDate) {
-      query += ' AND date >= ? AND date <= ?';
-      params.push(startDate, endDate);
+      query += " AND date >= ? AND date <= ?";
+      params.push(startDate.toISOString(), endDate.toISOString());
     }
 
     const result = await this.client.execute(query, params, { prepare: true });
-    
-    return result.rows.map(row => {
-      let timestamp: Date;
-      if (granularity === 'minute') {
-        timestamp = new Date(row.date.getFullYear(), row.date.getMonth(), row.date.getDate(), row.hour, row.minute);
-      } else {
-        timestamp = new Date(row.date.getFullYear(), row.date.getMonth(), row.date.getDate(), row.hour);
-      }
 
-      return {
-        timestamp: timestamp.toISOString(),
-        hits: Number(row.count),
-      };
-    }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return result.rows
+      .map((row) => {
+        let timestamp: Date;
+        if (granularity === "minute") {
+          timestamp = new Date(
+            row.date.getFullYear(),
+            row.date.getMonth(),
+            row.date.getDate(),
+            row.hour,
+            row.minute
+          );
+        } else {
+          timestamp = new Date(
+            row.date.getFullYear(),
+            row.date.getMonth(),
+            row.date.getDate(),
+            row.hour
+          );
+        }
+
+        return {
+          timestamp: timestamp.toISOString(),
+          hits: Number(row.count),
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
   }
 
   /**
    * Get top referrers
    */
-  private async getTopReferrers(code: string, limit: number = 10): Promise<any[]> {
-    const query = 'SELECT referrer, count FROM referrers WHERE code = ?';
+  private async getTopReferrers(
+    code: string,
+    limit: number = 10
+  ): Promise<any[]> {
+    const query = "SELECT referrer, count FROM referrers WHERE code = ?";
     const result = await this.client.execute(query, [code], { prepare: true });
-    
+
     const referrers = result.rows
-      .map(row => ({
+      .map((row) => ({
         referrer: row.referrer,
         hits: Number(row.count),
       }))
@@ -429,8 +501,8 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
       .slice(0, limit);
 
     const totalHits = referrers.reduce((sum, ref) => sum + ref.hits, 0);
-    
-    return referrers.map(ref => ({
+
+    return referrers.map((ref) => ({
       ...ref,
       percentage: totalHits > 0 ? (ref.hits / totalHits) * 100 : 0,
     }));
@@ -440,17 +512,17 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
    * Get geographic distribution
    */
   private async getGeographicDistribution(code: string): Promise<any[]> {
-    const query = 'SELECT country, count FROM geographic WHERE code = ?';
+    const query = "SELECT country, count FROM geographic WHERE code = ?";
     const result = await this.client.execute(query, [code], { prepare: true });
-    
-    const countries = result.rows.map(row => ({
+
+    const countries = result.rows.map((row) => ({
       country: row.country,
       hits: Number(row.count),
     }));
 
     const totalHits = countries.reduce((sum, country) => sum + country.hits, 0);
-    
-    return countries.map(country => ({
+
+    return countries.map((country) => ({
       ...country,
       percentage: totalHits > 0 ? (country.hits / totalHits) * 100 : 0,
     }));
@@ -459,36 +531,49 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get device and browser distribution
    */
-  private async getDeviceDistribution(code: string): Promise<{ devices: any[], browsers: any[] }> {
-    const query = 'SELECT device_type, browser, os, count FROM devices WHERE code = ?';
+  private async getDeviceDistribution(
+    code: string
+  ): Promise<{ devices: any[]; browsers: any[] }> {
+    const query =
+      "SELECT device_type, browser, os, count FROM devices WHERE code = ?";
     const result = await this.client.execute(query, [code], { prepare: true });
-    
+
     const deviceMap = new Map<string, number>();
     const browserMap = new Map<string, number>();
-    
-    result.rows.forEach(row => {
+
+    result.rows.forEach((row) => {
       const deviceType = row.device_type;
       const browser = row.browser;
       const count = Number(row.count);
-      
+
       deviceMap.set(deviceType, (deviceMap.get(deviceType) || 0) + count);
       browserMap.set(browser, (browserMap.get(browser) || 0) + count);
     });
 
-    const totalDeviceHits = Array.from(deviceMap.values()).reduce((sum, count) => sum + count, 0);
-    const totalBrowserHits = Array.from(browserMap.values()).reduce((sum, count) => sum + count, 0);
+    const totalDeviceHits = Array.from(deviceMap.values()).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+    const totalBrowserHits = Array.from(browserMap.values()).reduce(
+      (sum, count) => sum + count,
+      0
+    );
 
-    const devices = Array.from(deviceMap.entries()).map(([deviceType, hits]) => ({
-      deviceType,
-      hits,
-      percentage: totalDeviceHits > 0 ? (hits / totalDeviceHits) * 100 : 0,
-    }));
+    const devices = Array.from(deviceMap.entries()).map(
+      ([deviceType, hits]) => ({
+        deviceType,
+        hits,
+        percentage: totalDeviceHits > 0 ? (hits / totalDeviceHits) * 100 : 0,
+      })
+    );
 
-    const browsers = Array.from(browserMap.entries()).map(([browser, hits]) => ({
-      browser,
-      hits,
-      percentage: totalBrowserHits > 0 ? (hits / totalBrowserHits) * 100 : 0,
-    }));
+    const browsers = Array.from(browserMap.entries()).map(
+      ([browser, hits]) => ({
+        browser,
+        hits,
+        percentage: totalBrowserHits > 0 ? (hits / totalBrowserHits) * 100 : 0,
+      })
+    );
 
     return { devices, browsers };
   }
@@ -496,10 +581,13 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get access times
    */
-  private async getAccessTimes(code: string): Promise<{ firstAccessed?: Date, lastAccessed?: Date }> {
-    const query = 'SELECT first_accessed, last_accessed FROM access_times WHERE code = ?';
+  private async getAccessTimes(
+    code: string
+  ): Promise<{ firstAccessed?: Date; lastAccessed?: Date }> {
+    const query =
+      "SELECT first_accessed, last_accessed FROM access_times WHERE code = ?";
     const result = await this.client.execute(query, [code], { prepare: true });
-    
+
     if (result.rows.length === 0) {
       return {};
     }
@@ -514,17 +602,22 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get total statistics
    */
-  private async getTotalStats(code: string, startDate?: Date, endDate?: Date): Promise<{ totalHits: number, uniqueVisitors: number }> {
-    let query = 'SELECT SUM(count) as total_hits, SUM(unique_visitors) as unique_visitors FROM hits_by_hour WHERE code = ?';
+  private async getTotalStats(
+    code: string,
+    startDate?: Date,
+    endDate?: Date
+  ): Promise<{ totalHits: number; uniqueVisitors: number }> {
+    let query =
+      "SELECT SUM(count) as total_hits, SUM(unique_visitors) as unique_visitors FROM hits_by_hour WHERE code = ?";
     const params = [code];
 
     if (startDate && endDate) {
-      query += ' AND date >= ? AND date <= ?';
-      params.push(startDate, endDate);
+      query += " AND date >= ? AND date <= ?";
+      params.push(startDate.toISOString(), endDate.toISOString());
     }
 
     const result = await this.client.execute(query, params, { prepare: true });
-    
+
     if (result.rows.length === 0) {
       return { totalHits: 0, uniqueVisitors: 0 };
     }
@@ -540,8 +633,12 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
    * Create a hash for unique visitor tracking
    */
   private createVisitorHash(ip: string, userAgent: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(`${ip}:${userAgent}`).digest('hex').substring(0, 16);
+    const crypto = require("crypto");
+    return crypto
+      .createHash("sha256")
+      .update(`${ip}:${userAgent}`)
+      .digest("hex")
+      .substring(0, 16);
   }
 
   /**
@@ -549,10 +646,14 @@ export class CassandraService implements OnModuleInit, OnModuleDestroy {
    */
   async getHealth(): Promise<boolean> {
     try {
-      await this.client.execute('SELECT now() FROM system.local');
+      await this.client.execute("SELECT now() FROM system.local");
       return true;
     } catch (error) {
-      this.logger.error('❌ Cassandra health check failed', error.message, 'CassandraService');
+      this.logger.error(
+        "❌ Cassandra health check failed",
+        error.message,
+        "CassandraService"
+      );
       return false;
     }
   }

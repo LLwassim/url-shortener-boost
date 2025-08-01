@@ -1,8 +1,8 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Kafka, Producer, Consumer, KafkaMessage } from 'kafkajs';
-import { LoggerService } from './logger.service';
-import { HitEventDto } from '../dto/analytics.dto';
+import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Kafka, Producer, Consumer, KafkaMessage } from "kafkajs";
+import { LoggerService } from "./logger.service";
+import { HitEventDto } from "../dto/analytics.dto";
 
 @Injectable()
 export class KafkaService implements OnModuleInit, OnModuleDestroy {
@@ -10,16 +10,26 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private producer: Producer;
   private consumer: Consumer;
   private readonly topicHits: string;
+  private consumerInitialized = false;
+  private consumerRunning = false;
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
+    private readonly logger: LoggerService
   ) {
-    this.topicHits = this.configService.get<string>('KAFKA_TOPIC_HITS', 'url.hits');
-    
+    this.topicHits = this.configService.get<string>(
+      "KAFKA_TOPIC_HITS",
+      "url.hits"
+    );
+
     this.kafka = new Kafka({
-      clientId: this.configService.get<string>('KAFKA_CLIENT_ID', 'url-shortener'),
-      brokers: this.configService.get<string>('KAFKA_BROKERS', 'localhost:9092').split(','),
+      clientId: this.configService.get<string>(
+        "KAFKA_CLIENT_ID",
+        "url-shortener"
+      ),
+      brokers: this.configService
+        .get<string>("KAFKA_BROKERS", "localhost:9092")
+        .split(","),
       retry: {
         initialRetryTime: 300,
         retries: 8,
@@ -36,7 +46,10 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.consumer = this.kafka.consumer({
-      groupId: this.configService.get<string>('KAFKA_CONSUMER_GROUP_ID', 'url-shortener-analytics'),
+      groupId: this.configService.get<string>(
+        "KAFKA_CONSUMER_GROUP_ID",
+        "url-shortener-analytics"
+      ),
       sessionTimeout: 30000,
       rebalanceTimeout: 60000,
       heartbeatInterval: 3000,
@@ -44,13 +57,19 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    this.logger.log("onModuleInit() called", "KafkaService");
     try {
       await this.connectProducer();
       await this.connectConsumer();
       await this.createTopics();
-      this.logger.log('✅ Kafka service initialized', 'KafkaService');
+      this.logger.log("✅ Kafka service initialized", "KafkaService");
     } catch (error) {
-      this.logger.error('❌ Failed to initialize Kafka service', error.message, 'KafkaService', { error: error.stack });
+      this.logger.error(
+        "❌ Failed to initialize Kafka service",
+        error.message,
+        "KafkaService",
+        { error: error.stack }
+      );
       throw error;
     }
   }
@@ -61,9 +80,13 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         this.producer.disconnect(),
         this.consumer.disconnect(),
       ]);
-      this.logger.log('✅ Kafka service disconnected', 'KafkaService');
+      this.logger.log("✅ Kafka service disconnected", "KafkaService");
     } catch (error) {
-      this.logger.error('❌ Error disconnecting Kafka service', error.message, 'KafkaService');
+      this.logger.error(
+        "❌ Error disconnecting Kafka service",
+        error.message,
+        "KafkaService"
+      );
     }
   }
 
@@ -72,16 +95,31 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    */
   private async connectProducer(): Promise<void> {
     await this.producer.connect();
-    this.logger.log('📤 Kafka producer connected', 'KafkaService');
+    this.logger.log("📤 Kafka producer connected", "KafkaService");
   }
 
   /**
    * Connect the Kafka consumer
    */
   private async connectConsumer(): Promise<void> {
+    this.logger.log("connectConsumer() called", "KafkaService");
+    if (this.consumerInitialized) {
+      this.logger.warn(
+        "Kafka consumer already initialized, skipping connect/subscribe",
+        "KafkaService"
+      );
+      return;
+    }
     await this.consumer.connect();
-    await this.consumer.subscribe({ topic: this.topicHits, fromBeginning: false });
-    this.logger.log('📥 Kafka consumer connected and subscribed', 'KafkaService');
+    await this.consumer.subscribe({
+      topic: this.topicHits,
+      fromBeginning: false,
+    });
+    this.consumerInitialized = true;
+    this.logger.log(
+      "📥 Kafka consumer connected and subscribed",
+      "KafkaService"
+    );
   }
 
   /**
@@ -89,12 +127,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    */
   private async createTopics(): Promise<void> {
     const admin = this.kafka.admin();
-    
+
     try {
       await admin.connect();
-      
+
       const topics = await admin.listTopics();
-      
+
       if (!topics.includes(this.topicHits)) {
         await admin.createTopics({
           topics: [
@@ -104,22 +142,29 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
               replicationFactor: 1,
               configEntries: [
                 {
-                  name: 'cleanup.policy',
-                  value: 'compact',
+                  name: "cleanup.policy",
+                  value: "compact",
                 },
                 {
-                  name: 'retention.ms',
-                  value: '604800000', // 7 days
+                  name: "retention.ms",
+                  value: "604800000", // 7 days
                 },
               ],
             },
           ],
         });
-        
-        this.logger.log(`📝 Created Kafka topic: ${this.topicHits}`, 'KafkaService');
+
+        this.logger.log(
+          `📝 Created Kafka topic: ${this.topicHits}`,
+          "KafkaService"
+        );
       }
     } catch (error) {
-      this.logger.error('❌ Failed to create Kafka topics', error.message, 'KafkaService');
+      this.logger.error(
+        "❌ Failed to create Kafka topics",
+        error.message,
+        "KafkaService"
+      );
       throw error;
     } finally {
       await admin.disconnect();
@@ -138,9 +183,9 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
           timestamp: hitEvent.timestamp.toISOString(),
         }),
         headers: {
-          eventType: 'url.hit',
-          version: '1.0',
-          source: 'url-shortener',
+          eventType: "url.hit",
+          version: "1.0",
+          source: "url-shortener",
         },
       };
 
@@ -149,15 +194,20 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         messages: [message],
       });
 
-      this.logger.debug('📤 Published hit event to Kafka', 'KafkaService', {
+      this.logger.debug("📤 Published hit event to Kafka", "KafkaService", {
         code: hitEvent.code,
         timestamp: hitEvent.timestamp,
       });
     } catch (error) {
-      this.logger.error('❌ Failed to publish hit event', error.message, 'KafkaService', {
-        code: hitEvent.code,
-        error: error.stack,
-      });
+      this.logger.error(
+        "❌ Failed to publish hit event",
+        error.message,
+        "KafkaService",
+        {
+          code: hitEvent.code,
+          error: error.stack,
+        }
+      );
       // Don't throw error to avoid breaking the redirect flow
     }
   }
@@ -165,33 +215,55 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   /**
    * Start consuming hit events
    */
-  async startConsumer(onMessage: (message: HitEventDto) => Promise<void>): Promise<void> {
+  async startConsumer(
+    onMessage: (message: HitEventDto) => Promise<void>
+  ): Promise<void> {
+    this.logger.log("startConsumer() called", "KafkaService");
+    if (this.consumerRunning) {
+      this.logger.warn(
+        "Kafka consumer already running, skipping run()",
+        "KafkaService"
+      );
+      return;
+    }
+    this.consumerRunning = true;
     try {
       await this.consumer.run({
         eachMessage: async ({ topic, partition, message }) => {
           try {
             const hitEvent = this.parseHitEvent(message);
             await onMessage(hitEvent);
-            
-            this.logger.debug('📥 Processed hit event from Kafka', 'KafkaService', {
-              topic,
-              partition,
-              code: hitEvent.code,
-            });
+            this.logger.debug(
+              "📥 Processed hit event from Kafka",
+              "KafkaService",
+              {
+                topic,
+                partition,
+                code: hitEvent.code,
+              }
+            );
           } catch (error) {
-            this.logger.error('❌ Failed to process hit event', error.message, 'KafkaService', {
-              topic,
-              partition,
-              offset: message.offset,
-              error: error.stack,
-            });
+            this.logger.error(
+              "❌ Failed to process hit event",
+              error.message,
+              "KafkaService",
+              {
+                topic,
+                partition,
+                offset: message.offset,
+                error: error.stack,
+              }
+            );
           }
         },
       });
-      
-      this.logger.log('📥 Kafka consumer started', 'KafkaService');
+      this.logger.log("📥 Kafka consumer started", "KafkaService");
     } catch (error) {
-      this.logger.error('❌ Failed to start Kafka consumer', error.message, 'KafkaService');
+      this.logger.error(
+        "❌ Failed to start Kafka consumer",
+        error.message,
+        "KafkaService"
+      );
       throw error;
     }
   }
@@ -201,11 +273,11 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    */
   private parseHitEvent(message: KafkaMessage): HitEventDto {
     if (!message.value) {
-      throw new Error('Message value is null');
+      throw new Error("Message value is null");
     }
 
     const data = JSON.parse(message.value.toString());
-    
+
     return {
       code: data.code,
       timestamp: new Date(data.timestamp),
@@ -225,16 +297,16 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
    */
   async publishHitEventBatch(hitEvents: HitEventDto[]): Promise<void> {
     try {
-      const messages = hitEvents.map(hitEvent => ({
+      const messages = hitEvents.map((hitEvent) => ({
         key: hitEvent.code,
         value: JSON.stringify({
           ...hitEvent,
           timestamp: hitEvent.timestamp.toISOString(),
         }),
         headers: {
-          eventType: 'url.hit',
-          version: '1.0',
-          source: 'url-shortener',
+          eventType: "url.hit",
+          version: "1.0",
+          source: "url-shortener",
         },
       }));
 
@@ -243,14 +315,23 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         messages,
       });
 
-      this.logger.debug('📤 Published hit event batch to Kafka', 'KafkaService', {
-        count: hitEvents.length,
-      });
+      this.logger.debug(
+        "📤 Published hit event batch to Kafka",
+        "KafkaService",
+        {
+          count: hitEvents.length,
+        }
+      );
     } catch (error) {
-      this.logger.error('❌ Failed to publish hit event batch', error.message, 'KafkaService', {
-        count: hitEvents.length,
-        error: error.stack,
-      });
+      this.logger.error(
+        "❌ Failed to publish hit event batch",
+        error.message,
+        "KafkaService",
+        {
+          count: hitEvents.length,
+          error: error.stack,
+        }
+      );
     }
   }
 
@@ -262,14 +343,23 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       // Send a test message to check connectivity
       await this.producer.send({
         topic: this.topicHits,
-        messages: [{
-          key: 'health-check',
-          value: JSON.stringify({ type: 'health-check', timestamp: new Date().toISOString() }),
-        }],
+        messages: [
+          {
+            key: "health-check",
+            value: JSON.stringify({
+              type: "health-check",
+              timestamp: new Date().toISOString(),
+            }),
+          },
+        ],
       });
       return true;
     } catch (error) {
-      this.logger.error('❌ Kafka producer health check failed', error.message, 'KafkaService');
+      this.logger.error(
+        "❌ Kafka producer health check failed",
+        error.message,
+        "KafkaService"
+      );
       return false;
     }
   }
@@ -282,7 +372,11 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       // Check if consumer is connected
       return this.consumer !== null;
     } catch (error) {
-      this.logger.error('❌ Kafka consumer health check failed', error.message, 'KafkaService');
+      this.logger.error(
+        "❌ Kafka consumer health check failed",
+        error.message,
+        "KafkaService"
+      );
       return false;
     }
   }
