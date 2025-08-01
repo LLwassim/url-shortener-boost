@@ -1,0 +1,254 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shortener-api
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: url-shortener-boost
+      component: api
+  template:
+    metadata:
+      labels:
+        app: url-shortener-boost
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "3000"
+    spec:
+      containers:
+      - name: api
+        image: url-shortener-boost:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: NODE_ENV
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: PORT
+        - name: API_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: API_PREFIX
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: APP_NAME
+        # Database
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_HOST
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_PORT
+        - name: DATABASE_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_USERNAME
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: url-shortener-secrets
+              key: DATABASE_PASSWORD
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_NAME
+        - name: DATABASE_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_SSL
+        - name: DATABASE_LOGGING
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: DATABASE_LOGGING
+        # Redis
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: url-shortener-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: REDIS_DB
+        - name: REDIS_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: REDIS_TTL
+        # Kafka
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: KAFKA_BROKERS
+        - name: KAFKA_CLIENT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: KAFKA_CLIENT_ID
+        - name: KAFKA_CONSUMER_GROUP_ID
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: KAFKA_CONSUMER_GROUP_ID
+        - name: KAFKA_TOPIC_HITS
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: KAFKA_TOPIC_HITS
+        # Cassandra
+        - name: CASSANDRA_HOSTS
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: CASSANDRA_HOSTS
+        - name: CASSANDRA_KEYSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: CASSANDRA_KEYSPACE
+        - name: CASSANDRA_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: CASSANDRA_USERNAME
+        - name: CASSANDRA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: url-shortener-secrets
+              key: CASSANDRA_PASSWORD
+        # Security
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: url-shortener-secrets
+              key: JWT_SECRET
+        - name: ADMIN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: url-shortener-secrets
+              key: ADMIN_API_KEY
+        # Other configs from ConfigMap
+        - name: BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: BASE_URL
+        - name: RATE_LIMIT_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: RATE_LIMIT_TTL
+        - name: RATE_LIMIT_LIMIT
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: RATE_LIMIT_LIMIT
+        - name: METRICS_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: METRICS_ENABLED
+        - name: TRACING_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: TRACING_ENABLED
+        - name: JAEGER_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: JAEGER_ENDPOINT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: url-shortener-config
+              key: LOG_LEVEL
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health/liveness
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/readiness
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health/liveness
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: url-shortener-service
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: url-shortener-boost
+    component: api

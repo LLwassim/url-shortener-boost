@@ -1,0 +1,111 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: url-shortener-ingress
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit-connections: "20"
+    nginx.ingress.kubernetes.io/rate-limit-rps: "10"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/server-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self';" always;
+    
+    # Cert-manager for automatic TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - short.ly
+    - api.short.ly
+    secretName: url-shortener-tls
+  rules:
+  # Main domain for redirects
+  - host: short.ly
+    http:
+      paths:
+      # Health checks
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+      # Metrics (internal only - should be protected)
+      - path: /metrics
+        pathType: Exact
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+      # API routes
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+      # Documentation
+      - path: /docs
+        pathType: Prefix
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+      # Redirect routes (catch-all for short codes)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+  
+  # API subdomain
+  - host: api.short.ly
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: url-shortener-service
+            port:
+              number: 80
+---
+# ClusterIssuer for Let's Encrypt (requires cert-manager)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@short.ly  # Replace with your email
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx

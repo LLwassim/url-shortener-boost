@@ -1,0 +1,382 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint-and-test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: url_shortener_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Lint code
+      run: npm run lint
+
+    - name: Format check
+      run: npm run format -- --check
+
+    - name: Type check
+      run: npx tsc --noEmit
+
+    - name: Run unit tests
+      run: npm test
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: url_shortener_test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test-jwt-secret
+        ADMIN_API_KEY: test-admin-key
+        BASE_URL: http://localhost:3000
+
+    - name: Run integration tests
+      run: npm run test:integration
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: url_shortener_test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test-jwt-secret
+        ADMIN_API_KEY: test-admin-key
+        BASE_URL: http://localhost:3000
+
+    - name: Generate test coverage
+      run: npm run test:cov
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: url_shortener_test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test-jwt-secret
+        ADMIN_API_KEY: test-admin-key
+        BASE_URL: http://localhost:3000
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: SonarQube Scan
+      uses: sonarqube-quality-gate-action@master
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run security audit
+      run: npm audit --audit-level high
+
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+
+    - name: Run OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'URL-Shortener-Boost'
+        path: '.'
+        format: 'HTML'
+        out: 'owasp-report'
+
+    - name: Upload OWASP report
+      uses: actions/upload-artifact@v3
+      with:
+        name: owasp-report
+        path: owasp-report
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, security-scan]
+    if: github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+    - name: Deploy to staging
+      run: |
+        # Update image tag in deployment
+        sed -i "s|image: url-shortener-boost:latest|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${{ github.sha }}|g" k8s/deployment.yml
+        
+        # Apply manifests
+        kubectl apply -f k8s/namespace.yml
+        kubectl apply -f k8s/configmap.yml
+        kubectl apply -f k8s/secret.yml
+        kubectl apply -f k8s/postgres.yml
+        kubectl apply -f k8s/redis.yml
+        kubectl apply -f k8s/kafka.yml
+        kubectl apply -f k8s/cassandra.yml
+        kubectl apply -f k8s/deployment.yml
+        kubectl apply -f k8s/ingress.yml
+        kubectl apply -f k8s/hpa.yml
+        kubectl apply -f k8s/monitoring.yml
+        kubectl apply -f k8s/network-policy.yml
+        
+        # Wait for deployment
+        kubectl rollout status deployment/url-shortener-api -n url-shortener --timeout=300s
+
+    - name: Run smoke tests
+      run: |
+        # Wait for service to be ready
+        sleep 30
+        
+        # Basic health check
+        curl -f https://staging.short.ly/health || exit 1
+        
+        # Create a test URL
+        response=$(curl -s -X POST https://staging.short.ly/api/urls \
+          -H "Content-Type: application/json" \
+          -d '{"url": "https://example.com/test"}')
+        
+        # Check if response contains expected fields
+        echo $response | jq -e '.code and .shortUrl and .original' || exit 1
+
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+    - name: Deploy to production
+      run: |
+        # Update image tag in deployment
+        sed -i "s|image: url-shortener-boost:latest|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ github.sha }}|g" k8s/deployment.yml
+        
+        # Apply manifests with production configuration
+        kubectl apply -f k8s/namespace.yml
+        kubectl apply -f k8s/configmap.yml
+        kubectl apply -f k8s/secret.yml
+        kubectl apply -f k8s/postgres.yml
+        kubectl apply -f k8s/redis.yml
+        kubectl apply -f k8s/kafka.yml
+        kubectl apply -f k8s/cassandra.yml
+        kubectl apply -f k8s/deployment.yml
+        kubectl apply -f k8s/ingress.yml
+        kubectl apply -f k8s/hpa.yml
+        kubectl apply -f k8s/monitoring.yml
+        kubectl apply -f k8s/network-policy.yml
+        
+        # Rolling deployment with zero downtime
+        kubectl patch deployment url-shortener-api -n url-shortener -p \
+          '{"spec":{"template":{"metadata":{"annotations":{"deployment.kubernetes.io/revision":"'$(date +%s)'"}}}}}'
+        
+        # Wait for deployment to complete
+        kubectl rollout status deployment/url-shortener-api -n url-shortener --timeout=600s
+
+    - name: Run production smoke tests
+      run: |
+        # Wait for service to be ready
+        sleep 60
+        
+        # Health checks
+        curl -f https://short.ly/health || exit 1
+        curl -f https://short.ly/health/readiness || exit 1
+        
+        # Metrics endpoint
+        curl -f https://short.ly/metrics | grep -q "http_requests_total" || exit 1
+        
+        # API endpoints
+        response=$(curl -s -X POST https://short.ly/api/urls \
+          -H "Content-Type: application/json" \
+          -d '{"url": "https://example.com/production-test"}')
+        
+        # Extract short code and test redirect
+        code=$(echo $response | jq -r '.code')
+        curl -I https://short.ly/$code | grep -q "Location: https://example.com/production-test" || exit 1
+
+    - name: Update monitoring dashboards
+      run: |
+        # Trigger Grafana dashboard refresh
+        curl -X POST "${{ secrets.GRAFANA_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d '{"refresh": true, "dashboard": "url-shortener-overview"}'
+
+    - name: Create GitHub release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Release v${{ github.run_number }}
+        body: |
+          ## Changes in this Release
+          ${{ github.event.head_commit.message }}
+          
+          ## Docker Image
+          `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ github.sha }}`
+          
+          ## Deployment
+          - Deployed to production at $(date)
+          - Health check: https://short.ly/health
+          - API documentation: https://short.ly/docs
+        draft: false
+        prerelease: false
+
+    - name: Notify team
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#production'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow

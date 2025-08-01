@@ -1,0 +1,152 @@
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: url-shortener-metrics
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: url-shortener-boost
+      component: api
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+---
+# PrometheusRule for alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: url-shortener-alerts
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+    monitoring: prometheus
+spec:
+  groups:
+  - name: url-shortener.rules
+    interval: 30s
+    rules:
+    # High error rate
+    - alert: HighErrorRate
+      expr: |
+        (
+          rate(http_requests_total{job="url-shortener", status_code=~"5.."}[5m]) /
+          rate(http_requests_total{job="url-shortener"}[5m])
+        ) > 0.01
+      for: 5m
+      labels:
+        severity: critical
+        service: url-shortener
+      annotations:
+        summary: "High error rate detected"
+        description: "URL shortener has error rate above 1% for 5 minutes"
+
+    # High response time
+    - alert: HighResponseTime
+      expr: |
+        histogram_quantile(0.95, 
+          rate(http_request_duration_seconds_bucket{job="url-shortener"}[5m])
+        ) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "High response time detected"
+        description: "URL shortener 95th percentile response time is above 100ms"
+
+    # High memory usage
+    - alert: HighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{pod=~"url-shortener-api-.*"} /
+          container_spec_memory_limit_bytes{pod=~"url-shortener-api-.*"}
+        ) > 0.9
+      for: 10m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "High memory usage detected"
+        description: "URL shortener pod {{ $labels.pod }} memory usage above 90%"
+
+    # High CPU usage
+    - alert: HighCPUUsage
+      expr: |
+        rate(container_cpu_usage_seconds_total{pod=~"url-shortener-api-.*"}[5m]) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "High CPU usage detected"
+        description: "URL shortener pod {{ $labels.pod }} CPU usage above 80%"
+
+    # Pod restart rate
+    - alert: HighPodRestartRate
+      expr: |
+        rate(kube_pod_container_status_restarts_total{pod=~"url-shortener-api-.*"}[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "High pod restart rate detected"
+        description: "URL shortener pod {{ $labels.pod }} is restarting frequently"
+
+    # Database connection issues
+    - alert: DatabaseConnectionIssues
+      expr: |
+        database_connections_active{job="url-shortener"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        service: url-shortener
+      annotations:
+        summary: "Database connection issues"
+        description: "URL shortener has no active database connections"
+
+    # Redis connection issues
+    - alert: RedisConnectionIssues
+      expr: |
+        cache_operations_total{job="url-shortener", status="error"} > 0
+      for: 2m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "Redis connection issues"
+        description: "URL shortener is experiencing Redis connection errors"
+
+    # Low cache hit rate
+    - alert: LowCacheHitRate
+      expr: |
+        (
+          rate(cache_operations_total{job="url-shortener", status="hit"}[10m]) /
+          rate(cache_operations_total{job="url-shortener"}[10m])
+        ) < 0.7
+      for: 15m
+      labels:
+        severity: warning
+        service: url-shortener
+      annotations:
+        summary: "Low cache hit rate"
+        description: "URL shortener cache hit rate is below 70%"
+
+    # URL creation rate spike
+    - alert: HighURLCreationRate
+      expr: |
+        rate(url_creations_total{job="url-shortener"}[5m]) > 100
+      for: 10m
+      labels:
+        severity: info
+        service: url-shortener
+      annotations:
+        summary: "High URL creation rate"
+        description: "URL creation rate is above 100/sec, potential abuse"

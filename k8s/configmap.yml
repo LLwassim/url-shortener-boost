@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: url-shortener-config
+  namespace: url-shortener
+  labels:
+    app: url-shortener-boost
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  API_PREFIX: "api"
+  APP_NAME: "URL-Shortener-Boost"
+  
+  # Database
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_USERNAME: "postgres"
+  DATABASE_NAME: "url_shortener"
+  DATABASE_SSL: "false"
+  DATABASE_LOGGING: "false"
+  
+  # Redis
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_TTL: "3600"
+  
+  # Kafka
+  KAFKA_BROKERS: "kafka-service:9092"
+  KAFKA_CLIENT_ID: "url-shortener"
+  KAFKA_CONSUMER_GROUP_ID: "url-shortener-analytics"
+  KAFKA_TOPIC_HITS: "url.hits"
+  
+  # Cassandra
+  CASSANDRA_HOSTS: "cassandra-service:9042"
+  CASSANDRA_KEYSPACE: "url_analytics"
+  CASSANDRA_USERNAME: "cassandra"
+  
+  # Rate Limiting
+  RATE_LIMIT_TTL: "60"
+  RATE_LIMIT_LIMIT: "100"
+  RATE_LIMIT_SKIP_SUCCESSFUL_REQUESTS: "false"
+  
+  # URL Configuration
+  BASE_URL: "https://short.ly"
+  MAX_URL_LENGTH: "2048"
+  DEFAULT_CODE_LENGTH: "7"
+  CUSTOM_ALIAS_MIN_LENGTH: "3"
+  CUSTOM_ALIAS_MAX_LENGTH: "50"
+  
+  # External Services
+  ENABLE_URL_SCANNING: "false"
+  
+  # Observability
+  METRICS_ENABLED: "true"
+  METRICS_PATH: "/metrics"
+  TRACING_ENABLED: "true"
+  JAEGER_ENDPOINT: "http://jaeger-collector:14268/api/traces"
+  LOG_LEVEL: "info"
+  
+  # Health Check
+  HEALTH_CHECK_DATABASE: "true"
+  HEALTH_CHECK_REDIS: "true"
+  HEALTH_CHECK_KAFKA: "true"
+  
+  # CORS
+  CORS_ENABLED: "true"
+  CORS_ORIGIN: "*"
+  CORS_METHODS: "GET,HEAD,PUT,PATCH,POST,DELETE"
+  CORS_CREDENTIALS: "true"
+  
+  # Swagger
+  SWAGGER_ENABLED: "true"
+  SWAGGER_TITLE: "URL Shortener API"
+  SWAGGER_DESCRIPTION: "Production-grade URL shortener microservice"
+  SWAGGER_VERSION: "1.0.0"
+  SWAGGER_PATH: "docs"
