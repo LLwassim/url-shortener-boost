@@ -60,7 +60,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     this.logger.log("onModuleInit() called", "KafkaService");
     try {
       await this.connectProducer();
-      await this.connectConsumer();
       await this.createTopics();
       this.logger.log("✅ Kafka service initialized", "KafkaService");
     } catch (error) {
@@ -219,6 +218,9 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     onMessage: (message: HitEventDto) => Promise<void>
   ): Promise<void> {
     this.logger.log("startConsumer() called", "KafkaService");
+    if (!this.consumerInitialized) {
+      await this.connectConsumer();
+    }
     if (this.consumerRunning) {
       this.logger.warn(
         "Kafka consumer already running, skipping run()",

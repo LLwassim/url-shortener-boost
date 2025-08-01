@@ -629,27 +629,13 @@ beforeAll(async () => {
 
 ### Feature Requests
 
-Current feature requests and their priority:
+Some other features I might do for fun this weekend possibility chances:
 
 - [ ] **QR Code Generation** (High)
 - [ ] **Browser Extensions** (Medium)
 - [ ] **Slack/Teams Integration** (Medium)
 - [ ] **GraphQL API** (Low)
 - [ ] **Mobile SDK** (Low)
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes
-4. Run tests: `npm test`
-5. Commit: `git commit -m 'Add amazing feature'`
-6. Push: `git push origin feature/amazing-feature`
-7. Open a Pull Request
 
 ### Code Standards
 
@@ -675,15 +661,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Documentation**: [GitHub Wiki](https://github.com/your-org/url-shortener-boost/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-org/url-shortener-boost/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/url-shortener-boost/discussions)
-- **Email**: support@your-domain.com
+- **Documentation**: will make later 
+- **Issues**: [GitHub Issues](https://github.com/LLwassim/url-shortener-boost/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/LLwassim/url-shortener-boost/discussions)
+- **Email**: wassimlacorchy@gmail.com
 
 ---
 
 <div align="center">
   <strong>Built with ❤️ for the developer community</strong>
   <br />
-  <sub>Made by <a href="https://github.com/your-org">Your Organization</a></sub>
+  <sub>Made by Wassim</a></sub>
 </div>
